@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서울시 자치구별 도보 네트워크 공간정보 시각화</title>
+    <meta name="description" content="서울시 25개 자치구의 도보 네트워크 공간정보를 인터랙티브 지도에 시각화합니다.">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-panel: rgba(255, 255, 255, 0.95);
+            --bg-glass: rgba(255, 255, 255, 0.88);
+            --border-color: rgba(0, 0, 0, 0.08);
+            --border-hover: rgba(0, 0, 0, 0.15);
+            --accent-blue: #2563eb;
+            --accent-indigo: #4f46e5;
+            --accent-violet: #7c3aed;
+            --text-dark: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: #f8fafc;
+            color: var(--text-dark);
+            overflow: hidden;
+            height: 100vh; width: 100vw;
+        }
+
+        #map {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header-bar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 1000;
+            background: linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.85) 80%, rgba(255,255,255,0) 100%);
+            padding: 14px 24px 30px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+        .header-bar > * { pointer-events: auto; }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .header-title .icon {
+            width: 44px; height: 44px;
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            border-radius: 13px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .header-title h1 {
+            font-size: 20px; font-weight: 800;
+            background: linear-gradient(135deg, #1e3a8a, #4f46e5);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }
+
+        .header-title .subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 6px;
+        }
+
+        .stat-chip {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 7px 14px;
+            display: flex; align-items: center; gap: 7px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+        }
+        .stat-chip:hover {
+            box-shadow: var(--shadow-md);
+            border-color: var(--border-hover);
+        }
+        .stat-chip .value {
+            font-weight: 700;
+            color: var(--text-dark);
+            font-size: 13px;
+        }
+        .stat-chip .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Side Panel */
+        .side-panel {
+            position: fixed;
+            top: 76px; left: 14px; bottom: 14px;
+            width: 340px;
+            z-index: 1000;
+            display: flex; flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .side-panel > * { pointer-events: auto; }
+
+        .panel-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+            transition: all 0.3s ease;
+        }
+
+        .panel-header {
+            padding: 14px 16px 10px;
+            display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .panel-header h2 {
+            font-size: 14px; font-weight: 700;
+            color: var(--text-dark);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .panel-header .badge {
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            color: var(--accent-indigo);
+            font-size: 11px; font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        /* Sort Controls */
+        .sort-controls {
+            padding: 8px 16px 10px;
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .sort-btn {
+            background: #f1f5f9;
+            border: 1px solid var(--border-color);
+            border-radius: 7px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-family: 'Noto Sans KR', sans-serif;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .sort-btn:hover {
+            background: #e2e8f0;
+            color: var(--text-secondary);
+        }
+        .sort-btn.active {
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            border-color: rgba(79, 70, 229, 0.25);
+            color: var(--accent-indigo);
+            font-weight: 600;
+        }
+
+        /* District List */
+        .district-list {
+            flex: 1;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0,0,0,0.1) transparent;
+        }
+        .district-list::-webkit-scrollbar { width: 4px; }
+        .district-list::-webkit-scrollbar-track { background: transparent; }
+        .district-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 4px; }
+
+        .district-item {
+            padding: 11px 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            gap: 11px;
+        }
+        .district-item:hover {
+            background: rgba(37, 99, 235, 0.04);
+        }
+        .district-item.active {
+            background: linear-gradient(135deg, rgba(37,99,235,0.06), rgba(79,70,229,0.06));
+            border-left: 3px solid var(--accent-blue);
+        }
+        .district-item .rank {
+            width: 28px; height: 28px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700;
+            flex-shrink: 0;
+        }
+        .district-item .info { flex: 1; min-width: 0; }
+        .district-item .name {
+            font-size: 14px; font-weight: 600;
+            color: var(--text-dark);
+            margin-bottom: 2px;
+        }
+        .district-item .meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex; gap: 10px;
+        }
+        .district-item .bar-container {
+            width: 55px; height: 6px;
+            background: #f1f5f9;
+            border-radius: 3px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .district-item .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.8s ease;
+        }
+
+        /* Detail Panel */
+        .detail-panel {
+            position: fixed;
+            top: 76px; right: 14px;
+            width: 330px;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+        }
+        .detail-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
+        }
+
+        .detail-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+        }
+
+        .detail-header {
+            padding: 18px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .detail-header .close-btn {
+            position: absolute;
+            top: 14px; right: 14px;
+            width: 28px; height: 28px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #f8fafc;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+        .detail-header .close-btn:hover {
+            background: #f1f5f9;
+            color: var(--text-dark);
+        }
+        .detail-header h3 {
+            font-size: 22px; font-weight: 800;
+            margin-bottom: 4px;
+        }
+        .detail-header .dist-code {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: 'Courier New', monospace;
+        }
+
+        .detail-body {
+            padding: 14px 20px;
+            max-height: calc(100vh - 250px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0,0,0,0.08) transparent;
+        }
+        .detail-body::-webkit-scrollbar { width: 4px; }
+        .detail-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+
+        .detail-section { margin-bottom: 16px; }
+        .detail-section .section-title {
+            font-size: 11px; font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .stat-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+        .stat-box:hover {
+            border-color: var(--border-hover);
+            background: #f1f5f9;
+        }
+        .stat-box .stat-value {
+            font-size: 20px; font-weight: 800;
+            margin-bottom: 2px;
+        }
+        .stat-box .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .feature-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .feature-tag {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex; align-items: center; gap: 6px;
+        }
+        .feature-tag .tag-icon { font-size: 14px; }
+        .feature-tag .tag-value { font-weight: 700; color: var(--text-dark); }
+
+        .emd-list { display: flex; flex-wrap: wrap; gap: 5px; }
+        .emd-chip {
+            background: linear-gradient(135deg, #ede9fe, #dbeafe);
+            border: 1px solid rgba(79,70,229,0.15);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 11px;
+            color: var(--accent-indigo);
+            font-weight: 500;
+        }
+
+        /* Legend */
+        .legend {
+            position: fixed;
+            bottom: 14px; right: 14px;
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: var(--shadow-md);
+        }
+        .legend h4 {
+            font-size: 11px; font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        .legend-item {
+            display: flex; align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .legend-item:last-child { margin-bottom: 0; }
+        .legend-swatch {
+            width: 20px; height: 4px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        .legend-circle {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            border: 2px solid;
+            opacity: 0.7;
+        }
+        .legend-rect {
+            width: 16px; height: 16px;
+            border-radius: 4px;
+            border: 2px solid;
+            flex-shrink: 0;
+            opacity: 0.6;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed; inset: 0;
+            z-index: 9999;
+            background: #fff;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 16px;
+            transition: opacity 0.5s ease;
+        }
+        .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+        .loader-ring {
+            width: 44px; height: 44px;
+            border: 3px solid #e2e8f0;
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 14px; color: var(--text-muted); }
+
+        /* Map controls */
+        .map-controls {
+            position: fixed;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex; gap: 5px;
+        }
+        .control-btn {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 9px 14px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-family: 'Noto Sans KR', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 6px;
+            box-shadow: var(--shadow-sm);
+            font-weight: 500;
+        }
+        .control-btn:hover {
+            background: #f1f5f9;
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow-md);
+        }
+        .control-btn.active {
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            border-color: rgba(37,99,235,0.3);
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        /* Leaflet controls */
+        .leaflet-control-zoom { border: none !important; }
+        .leaflet-control-zoom a {
+            background: var(--bg-panel) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--text-dark) !important;
+            width: 36px !important; height: 36px !important;
+            line-height: 36px !important;
+            font-size: 16px !important;
+            border-radius: 10px !important;
+            margin-bottom: 4px !important;
+            box-shadow: var(--shadow-sm) !important;
+            transition: all 0.2s ease !important;
+        }
+        .leaflet-control-zoom a:hover {
+            background: #f1f5f9 !important;
+            border-color: var(--border-hover) !important;
+            box-shadow: var(--shadow-md) !important;
+        }
+
+        .leaflet-popup-content-wrapper {
+            background: var(--bg-panel) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 14px !important;
+            box-shadow: var(--shadow-lg) !important;
+            max-width: 340px !important;
+        }
+        .leaflet-popup-content {
+            color: var(--text-dark) !important;
+            font-family: 'Noto Sans KR', sans-serif !important;
+            margin: 14px 18px !important;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .leaflet-popup-tip {
+            background: var(--bg-panel) !important;
+        }
+
+        /* Popup Detail Styles */
+        .popup-title {
+            font-size: 15px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .popup-title .popup-type-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .popup-type-badge.node-badge {
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            color: var(--accent-indigo);
+        }
+        .popup-type-badge.link-badge {
+            background: linear-gradient(135deg, #dcfce7, #d1fae5);
+            color: #059669;
+        }
+        .popup-divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 8px 0;
+        }
+        .popup-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            font-size: 12px;
+        }
+        .popup-row .popup-label {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .popup-row .popup-value {
+            font-weight: 700;
+            color: var(--text-dark);
+        }
+        .popup-flags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .popup-flag {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .popup-flag.active {
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            color: var(--accent-indigo);
+        }
+        .popup-flag.inactive {
+            background: #f1f5f9;
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+        .popup-coords {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            padding: 5px 8px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Tile Layer Switcher */
+        .tile-switcher {
+            position: fixed;
+            bottom: 56px;
+            right: 14px;
+            z-index: 1001;
+            opacity: 0;
+            transform: translateY(10px) scale(0.95);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+        }
+        .tile-switcher.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .tile-switcher-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            box-shadow: var(--shadow-lg);
+            padding: 12px;
+            width: 260px;
+        }
+        .tile-switcher-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            padding: 0 4px;
+        }
+        .tile-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .tile-option {
+            background: #f8fafc;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        .tile-option:hover {
+            border-color: var(--border-hover);
+            background: #f1f5f9;
+            transform: translateY(-1px);
+        }
+        .tile-option.active {
+            border-color: var(--accent-blue);
+            background: linear-gradient(135deg, #dbeafe, #ede9fe);
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+        }
+        .tile-option .tile-icon {
+            font-size: 22px;
+            margin-bottom: 4px;
+            display: block;
+        }
+        .tile-option .tile-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .tile-option.active .tile-name {
+            color: var(--accent-indigo);
+        }
+
+        /* Map style toggle button */
+        .map-style-btn {
+            position: fixed;
+            bottom: 14px;
+            right: 14px;
+            z-index: 1001;
+        }
+
+        @media (max-width: 900px) {
+            .side-panel { width: 260px; left: 8px; }
+            .detail-panel { width: 260px; right: 8px; }
+            .stats-bar { display: none; }
+            .tile-switcher { right: 8px; bottom: 52px; }
+            .map-style-btn { right: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <div class="loading-text">데이터를 불러오는 중...</div>
+</div>
+
+<div id="map"></div>
+
+<div class="header-bar">
+    <div class="header-title">
+        <div class="icon">🚶</div>
+        <div>
+            <h1>서울시 도보 네트워크 공간정보</h1>
+            <div class="subtitle">Seoul Pedestrian Network Spatial Data</div>
+        </div>
+    </div>
+    <div class="stats-bar" id="statsBar"></div>
+</div>
+
+<div class="side-panel">
+    <div class="panel-card" style="display:flex;flex-direction:column;max-height:calc(100vh - 96px);">
+        <div class="panel-header">
+            <h2>📍 자치구 목록 <span class="badge" id="districtCount">25</span></h2>
+        </div>
+        <div class="sort-controls" id="sortControls">
+            <button class="sort-btn active" data-sort="name">이름순</button>
+            <button class="sort-btn" data-sort="elements">요소 수</button>
+            <button class="sort-btn" data-sort="length">도보거리</button>
+            <button class="sort-btn" data-sort="emd">읍면동 수</button>
+        </div>
+        <div class="district-list" id="districtList"></div>
+    </div>
+</div>
+
+<div class="detail-panel" id="detailPanel">
+    <div class="detail-card">
+        <div class="detail-header">
+            <button class="close-btn" id="closeDetail">✕</button>
+            <h3 id="detailName">-</h3>
+            <div class="dist-code" id="detailCode">-</div>
+        </div>
+        <div class="detail-body" id="detailBody"></div>
+    </div>
+</div>
+
+<div class="map-controls">
+    <button class="control-btn active" id="toggleBounds" onclick="toggleLayer('bounds')">📐 자치구 범위</button>
+    <button class="control-btn active" id="toggleCircles" onclick="toggleLayer('circles')">⭕ 노드 범위</button>
+    <button class="control-btn active" id="toggleLinks" onclick="toggleLayer('links')">🛤️ 도보 링크</button>
+    <button class="control-btn" onclick="resetView()">🔄 전체 보기</button>
+</div>
+
+<div class="tile-switcher" id="tileSwitcher">
+    <div class="tile-switcher-card">
+        <div class="tile-switcher-title">🗺️ 지도 스타일</div>
+        <div class="tile-options">
+            <div class="tile-option active" data-tile="light" onclick="switchTile('light')">
+                <span class="tile-icon">🌤️</span>
+                <span class="tile-name">라이트</span>
+            </div>
+            <div class="tile-option" data-tile="dark" onclick="switchTile('dark')">
+                <span class="tile-icon">🌙</span>
+                <span class="tile-name">다크</span>
+            </div>
+            <div class="tile-option" data-tile="street" onclick="switchTile('street')">
+                <span class="tile-icon">🏙️</span>
+                <span class="tile-name">스트리트</span>
+            </div>
+            <div class="tile-option" data-tile="satellite" onclick="switchTile('satellite')">
+                <span class="tile-icon">🛰️</span>
+                <span class="tile-name">위성</span>
+            </div>
+            <div class="tile-option" data-tile="terrain" onclick="switchTile('terrain')">
+                <span class="tile-icon">⛰️</span>
+                <span class="tile-name">지형</span>
+            </div>
+            <div class="tile-option" data-tile="voyager" onclick="switchTile('voyager')">
+                <span class="tile-icon">🧭</span>
+                <span class="tile-name">보이저</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="map-style-btn">
+    <button class="control-btn" id="tileToggleBtn" onclick="toggleTileSwitcher()">
+        🗺️ 지도 스타일
+    </button>
+</div>
+
+<div class="legend" style="bottom: 56px;">
+    <h4>범례</h4>
+    <div class="legend-item">
+        <div class="legend-rect" style="border-color:#2563eb; background:rgba(37,99,235,0.1);"></div>
+        자치구 경계
+    </div>
+    <div class="legend-item">
+        <div class="legend-circle" style="border-color:#4f46e5; background:rgba(79,70,229,0.12);"></div>
+        노드 범위 (도보 포인트)
+    </div>
+    <div class="legend-item">
+        <div class="legend-swatch" style="background:linear-gradient(90deg,#6366f1,#2563eb);"></div>
+        도보 링크
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // Distinct, vibrant color palette for 25 districts
+    const COLORS = [
+        '#e53e3e', '#dd6b20', '#d69e2e', '#38a169', '#319795',
+        '#3182ce', '#5a67d8', '#805ad5', '#d53f8c', '#e53e3e',
+        '#c05621', '#2f855a', '#2b6cb0', '#6b46c1', '#b83280',
+        '#c53030', '#ed8936', '#48bb78', '#4299e1', '#9f7aea',
+        '#ed64a6', '#f56565', '#ecc94b', '#38b2ac', '#667eea'
+    ];
+
+    const map = L.map('map', {
+        center: [37.5665, 126.9780],
+        zoom: 12,
+        zoomControl: false,
+        attributionControl: false
+    });
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // ===== Tile Layers =====
+    const tileLayers = {
+        light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19, subdomains: 'abcd', attribution: '© CartoDB'
+        }),
+        dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19, subdomains: 'abcd', attribution: '© CartoDB'
+        }),
+        street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19, attribution: '© OpenStreetMap'
+        }),
+        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 18, attribution: '© Esri'
+        }),
+        terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            maxZoom: 17, attribution: '© OpenTopoMap'
+        }),
+        voyager: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19, subdomains: 'abcd', attribution: '© CartoDB'
+        }),
+    };
+    let currentTileKey = 'light';
+    tileLayers.light.addTo(map);
+
+    function switchTile(key) {
+        if (key === currentTileKey) return;
+        map.removeLayer(tileLayers[currentTileKey]);
+        tileLayers[key].addTo(map);
+        tileLayers[key].bringToBack();
+        currentTileKey = key;
+        document.querySelectorAll('.tile-option').forEach(el => {
+            el.classList.toggle('active', el.dataset.tile === key);
+        });
+    }
+
+    function toggleTileSwitcher() {
+        const panel = document.getElementById('tileSwitcher');
+        const btn = document.getElementById('tileToggleBtn');
+        panel.classList.toggle('visible');
+        btn.classList.toggle('active');
+    }
+
+    // Close tile switcher when clicking elsewhere
+    document.addEventListener('click', function(e) {
+        const panel = document.getElementById('tileSwitcher');
+        const btn = document.getElementById('tileToggleBtn');
+        if (panel.classList.contains('visible') &&
+            !panel.contains(e.target) && !btn.contains(e.target)) {
+            panel.classList.remove('visible');
+            btn.classList.remove('active');
+        }
+    });
+
+    const boundsLayer = L.layerGroup().addTo(map);
+    const circlesLayer = L.layerGroup().addTo(map);
+    const linksLayer = L.layerGroup().addTo(map);
+    const labelsLayer = L.layerGroup().addTo(map);
+
+    let allData = null;
+    let selectedDistrict = null;
+    let activeHighlight = null;
+    let layerVisibility = { bounds: true, circles: true, links: true };
+
+    fetch('processed_data.json')
+        .then(r => r.json())
+        .then(data => {
+            allData = data;
+            initializeMap(data);
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        })
+        .catch(err => {
+            console.error('Error:', err);
+            document.querySelector('.loading-text').textContent = '데이터 로드 실패: ' + err.message;
+        });
+
+    function initializeMap(data) {
+        const districts = data.districts;
+        
+        const totalNodes = districts.reduce((s, d) => s + d.node_count, 0);
+        const totalLinks = districts.reduce((s, d) => s + d.link_count, 0);
+        const totalKm = districts.reduce((s, d) => s + d.total_link_length_km, 0);
+        const totalEmd = districts.reduce((s, d) => s + d.emd_count, 0);
+
+        document.getElementById('statsBar').innerHTML = `
+            <div class="stat-chip"><div class="dot" style="background:#2563eb"></div>자치구 <span class="value">${districts.length}</span></div>
+            <div class="stat-chip"><div class="dot" style="background:#38a169"></div>노드 <span class="value">${totalNodes.toLocaleString()}</span></div>
+            <div class="stat-chip"><div class="dot" style="background:#805ad5"></div>링크 <span class="value">${totalLinks.toLocaleString()}</span></div>
+            <div class="stat-chip"><div class="dot" style="background:#dd6b20"></div>도보거리 <span class="value">${Math.round(totalKm).toLocaleString()}km</span></div>
+            <div class="stat-chip"><div class="dot" style="background:#d53f8c"></div>읍면동 <span class="value">${totalEmd}</span></div>
+        `;
+
+        const maxElements = Math.max(...districts.map(d => d.total_elements));
+        const maxLength = Math.max(...districts.map(d => d.total_link_length_km));
+
+        districts.forEach((dist, i) => {
+            const color = COLORS[i % COLORS.length];
+
+            // --- Bounding Box ---
+            const rect = L.rectangle(dist.bounds, {
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.06,
+                weight: 2.5,
+                opacity: 0.7,
+            }).addTo(boundsLayer);
+
+            rect.on('click', () => selectDistrict(dist, i));
+            rect.on('mouseover', function() {
+                this.setStyle({ fillOpacity: 0.15, weight: 3.5, opacity: 1 });
+            });
+            rect.on('mouseout', function() {
+                if (selectedDistrict !== dist.name)
+                    this.setStyle({ fillOpacity: 0.06, weight: 2.5, opacity: 0.7 });
+            });
+
+            // --- Center Label ---
+            const label = L.divIcon({
+                className: '',
+                html: `<div style="
+                    color: ${color};
+                    font-family:'Noto Sans KR',sans-serif;
+                    font-size:13px;
+                    font-weight:800;
+                    text-shadow: 0 1px 4px rgba(255,255,255,0.9), 0 0 8px rgba(255,255,255,0.7);
+                    white-space:nowrap;
+                    text-align:center;
+                    pointer-events:none;
+                ">${dist.name}</div>`,
+                iconSize: [100, 20],
+                iconAnchor: [50, 10]
+            });
+            L.marker(dist.center, { icon: label, interactive: false }).addTo(labelsLayer);
+
+            // --- Circle Range Markers (node positions) with click detail ---
+            if (dist.sampled_nodes) {
+                dist.sampled_nodes.forEach(nodeDetail => {
+                    const coord = nodeDetail.coord || nodeDetail;
+                    const circle = L.circle(coord, {
+                        radius: 50,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.12,
+                        weight: 1,
+                        opacity: 0.35,
+                    }).addTo(circlesLayer);
+
+                    // Only bind popup if detail data exists
+                    if (nodeDetail.node_id !== undefined) {
+                        circle.on('click', function(e) {
+                            L.DomEvent.stopPropagation(e);
+                            const popup = L.popup({ maxWidth: 320, className: 'custom-popup' })
+                                .setLatLng(e.latlng)
+                                .setContent(buildNodePopup(nodeDetail, dist.name, color))
+                                .openOn(map);
+                        });
+                        circle.on('mouseover', function() {
+                            this.setStyle({ fillOpacity: 0.35, weight: 2.5, opacity: 0.8 });
+                        });
+                        circle.on('mouseout', function() {
+                            this.setStyle({ fillOpacity: 0.12, weight: 1, opacity: 0.35 });
+                        });
+                    }
+                });
+            }
+
+            // --- Sample Links with click detail ---
+            dist.sample_links.forEach(linkDetail => {
+                const coords = linkDetail.coords || linkDetail;
+                const polyline = L.polyline(coords, {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.5,
+                    smoothFactor: 1
+                }).addTo(linksLayer);
+
+                if (linkDetail.lnkg_id !== undefined) {
+                    polyline.on('click', function(e) {
+                        L.DomEvent.stopPropagation(e);
+                        const popup = L.popup({ maxWidth: 320, className: 'custom-popup' })
+                            .setLatLng(e.latlng)
+                            .setContent(buildLinkPopup(linkDetail, dist.name, color))
+                            .openOn(map);
+                    });
+                    polyline.on('mouseover', function() {
+                        this.setStyle({ weight: 4.5, opacity: 0.9 });
+                    });
+                    polyline.on('mouseout', function() {
+                        this.setStyle({ weight: 2, opacity: 0.5 });
+                    });
+                }
+            });
+
+            dist._color = color;
+            dist._index = i;
+        });
+
+        renderDistrictList(districts, 'name', maxElements, maxLength);
+        setupSortControls(districts, maxElements, maxLength);
+    }
+
+    function renderDistrictList(districts, sortBy, maxElements, maxLength) {
+        const sorted = [...districts].sort((a, b) => {
+            if (sortBy === 'name') return a.name.localeCompare(b.name, 'ko');
+            if (sortBy === 'elements') return b.total_elements - a.total_elements;
+            if (sortBy === 'length') return b.total_link_length_km - a.total_link_length_km;
+            if (sortBy === 'emd') return b.emd_count - a.emd_count;
+            return 0;
+        });
+
+        const listEl = document.getElementById('districtList');
+        listEl.innerHTML = sorted.map((dist, rank) => {
+            const barWidth = sortBy === 'length' ?
+                (dist.total_link_length_km / maxLength * 100) :
+                (dist.total_elements / maxElements * 100);
+            const color = dist._color;
+            return `
+                <div class="district-item ${selectedDistrict === dist.name ? 'active' : ''}"
+                     data-name="${dist.name}" onclick="selectDistrict(allData.districts[${dist._index}], ${dist._index})">
+                    <div class="rank" style="background:${color}18; color:${color};">${rank + 1}</div>
+                    <div class="info">
+                        <div class="name">${dist.name}</div>
+                        <div class="meta">
+                            <span>📍 ${dist.emd_count}개 동</span>
+                            <span>🛤️ ${dist.total_link_length_km}km</span>
+                        </div>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width:${barWidth}%; background:linear-gradient(90deg,${color},${color}88);"></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function setupSortControls(districts, maxElements, maxLength) {
+        document.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderDistrictList(districts, btn.dataset.sort, maxElements, maxLength);
+            });
+        });
+    }
+
+    function selectDistrict(dist, index) {
+        selectedDistrict = dist.name;
+        const color = COLORS[index % COLORS.length];
+
+        if (activeHighlight) map.removeLayer(activeHighlight);
+        activeHighlight = L.rectangle(dist.bounds, {
+            color: color,
+            fillColor: color,
+            fillOpacity: 0.18,
+            weight: 3.5,
+            opacity: 1
+        }).addTo(map);
+
+        map.fitBounds(dist.bounds, { padding: [60, 60], maxZoom: 15 });
+
+        document.querySelectorAll('.district-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.name === dist.name);
+        });
+
+        const panel = document.getElementById('detailPanel');
+        panel.classList.add('visible');
+        document.getElementById('detailName').textContent = dist.name;
+        document.getElementById('detailName').style.color = color;
+        document.getElementById('detailCode').textContent = `자치구 코드: ${dist.sgg_cd}`;
+
+        document.getElementById('detailBody').innerHTML = `
+            <div class="detail-section">
+                <div class="section-title">네트워크 통계</div>
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <div class="stat-value" style="color:${color}">${dist.node_count.toLocaleString()}</div>
+                        <div class="stat-label">노드 수</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" style="color:${color}">${dist.link_count.toLocaleString()}</div>
+                        <div class="stat-label">링크 수</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" style="color:${color}">${dist.total_elements.toLocaleString()}</div>
+                        <div class="stat-label">총 요소</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" style="color:${color}">${dist.total_link_length_km}</div>
+                        <div class="stat-label">도보거리 (km)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="detail-section">
+                <div class="section-title">인프라 현황</div>
+                <div class="feature-tags">
+                    <div class="feature-tag"><span class="tag-icon">🚶</span>횡단보도<span class="tag-value">${dist.crosswalk_count.toLocaleString()}</span></div>
+                    <div class="feature-tag"><span class="tag-icon">🌉</span>교량<span class="tag-value">${dist.bridge_count.toLocaleString()}</span></div>
+                    <div class="feature-tag"><span class="tag-icon">🚇</span>지하철<span class="tag-value">${dist.subway_count.toLocaleString()}</span></div>
+                    <div class="feature-tag"><span class="tag-icon">🏗️</span>터널<span class="tag-value">${dist.tunnel_count.toLocaleString()}</span></div>
+                    <div class="feature-tag"><span class="tag-icon">🌳</span>공원<span class="tag-value">${dist.park_count.toLocaleString()}</span></div>
+                    <div class="feature-tag"><span class="tag-icon">🏢</span>건물<span class="tag-value">${dist.building_count.toLocaleString()}</span></div>
+                </div>
+            </div>
+            <div class="detail-section">
+                <div class="section-title">읍면동 목록 (${dist.emd_count}개)</div>
+                <div class="emd-list">
+                    ${dist.emd_names.map(n => `<span class="emd-chip">${n}</span>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function toggleLayer(name) {
+        layerVisibility[name] = !layerVisibility[name];
+        const active = layerVisibility[name];
+
+        if (name === 'bounds') {
+            active ? map.addLayer(boundsLayer) : map.removeLayer(boundsLayer);
+            active ? map.addLayer(labelsLayer) : map.removeLayer(labelsLayer);
+            document.getElementById('toggleBounds').classList.toggle('active', active);
+        } else if (name === 'circles') {
+            active ? map.addLayer(circlesLayer) : map.removeLayer(circlesLayer);
+            document.getElementById('toggleCircles').classList.toggle('active', active);
+        } else if (name === 'links') {
+            active ? map.addLayer(linksLayer) : map.removeLayer(linksLayer);
+            document.getElementById('toggleLinks').classList.toggle('active', active);
+        }
+    }
+
+    function resetView() {
+        map.setView([37.5665, 126.9780], 12);
+        selectedDistrict = null;
+        if (activeHighlight) { map.removeLayer(activeHighlight); activeHighlight = null; }
+        document.getElementById('detailPanel').classList.remove('visible');
+        document.querySelectorAll('.district-item').forEach(el => el.classList.remove('active'));
+    }
+
+    document.getElementById('closeDetail').addEventListener('click', () => {
+        document.getElementById('detailPanel').classList.remove('visible');
+        selectedDistrict = null;
+        if (activeHighlight) { map.removeLayer(activeHighlight); activeHighlight = null; }
+        document.querySelectorAll('.district-item').forEach(el => el.classList.remove('active'));
+    });
+
+    // ===== Popup Builder Functions =====
+
+    function flagBadge(icon, label, value) {
+        const isActive = value === '1' || value === 1;
+        return `<span class="popup-flag ${isActive ? 'active' : 'inactive'}">${icon} ${label}</span>`;
+    }
+
+    function buildNodePopup(node, distName, color) {
+        const lat = node.coord ? node.coord[0] : '?';
+        const lng = node.coord ? node.coord[1] : '?';
+        const nodeTypeName = node.node_type_cd === '0' ? '일반 노드' :
+                             node.node_type_cd === '1' ? '교차점 노드' :
+                             node.node_type_cd === '2' ? '시작/끝 노드' :
+                             `코드 ${node.node_type_cd || '-'}`;
+        return `
+            <div class="popup-title">
+                <span style="color:${color}">📍 노드 정보</span>
+                <span class="popup-type-badge node-badge">NODE</span>
+            </div>
+            <div class="popup-divider"></div>
+            <div class="popup-row">
+                <span class="popup-label">노드 ID</span>
+                <span class="popup-value">${node.node_id || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">자치구</span>
+                <span class="popup-value">${distName}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">자치구 코드</span>
+                <span class="popup-value" style="font-family:monospace;font-size:11px">${node.sgg_cd || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">읍면동</span>
+                <span class="popup-value">${node.emd_nm || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">읍면동 코드</span>
+                <span class="popup-value" style="font-family:monospace;font-size:11px">${node.emd_cd || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">노드 유형</span>
+                <span class="popup-value">${nodeTypeName}</span>
+            </div>
+            <div class="popup-divider"></div>
+            <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:4px">속성</div>
+            <div class="popup-flags">
+                ${flagBadge('🚶', '횡단보도', node.crswk)}
+                ${flagBadge('🔗', '중복', node.ovrp)}
+            </div>
+            <div class="popup-coords">📐 ${typeof lat === 'number' ? lat.toFixed(6) : lat}, ${typeof lng === 'number' ? lng.toFixed(6) : lng}</div>
+        `;
+    }
+
+    function buildLinkPopup(link, distName, color) {
+        const linkTypeName = link.lnkg_type_cd === '1000' ? '일반 도보' :
+                             link.lnkg_type_cd === '2000' ? '횡단보도' :
+                             link.lnkg_type_cd === '3000' ? '지하보도' :
+                             link.lnkg_type_cd === '4000' ? '육교' :
+                             `코드 ${link.lnkg_type_cd || '-'}`;
+        const lenDisplay = link.lnkg_len ? `${Number(link.lnkg_len).toFixed(1)}m` : '-';
+        return `
+            <div class="popup-title">
+                <span style="color:${color}">🛤️ 링크 정보</span>
+                <span class="popup-type-badge link-badge">LINK</span>
+            </div>
+            <div class="popup-divider"></div>
+            <div class="popup-row">
+                <span class="popup-label">링크 ID</span>
+                <span class="popup-value">${link.lnkg_id || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">자치구</span>
+                <span class="popup-value">${distName}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">읍면동</span>
+                <span class="popup-value">${link.emd_nm || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">읍면동 코드</span>
+                <span class="popup-value" style="font-family:monospace;font-size:11px">${link.emd_cd || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">링크 유형</span>
+                <span class="popup-value">${linkTypeName}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">링크 길이</span>
+                <span class="popup-value">${lenDisplay}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">시작노드 ID</span>
+                <span class="popup-value">${link.bgng_lnkg_id || '-'}</span>
+            </div>
+            <div class="popup-row">
+                <span class="popup-label">종료노드 ID</span>
+                <span class="popup-value">${link.end_lnkg_id || '-'}</span>
+            </div>
+            <div class="popup-divider"></div>
+            <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:4px">속성 플래그</div>
+            <div class="popup-flags">
+                ${flagBadge('🚶', '횡단보도', link.crswk)}
+                ${flagBadge('🌉', '교량', link.brg)}
+                ${flagBadge('🏗️', '터널', link.tnl)}
+                ${flagBadge('🚇', '지하철', link.sbwy_ntw)}
+                ${flagBadge('🌳', '공원', link.park)}
+                ${flagBadge('🏢', '건물', link.bldg)}
+                ${flagBadge('🚗', '차도 노출', link.expn_car_rd)}
+                ${flagBadge('🔗', '중복', link.ovrp)}
+            </div>
+        `;
+    }
+</script>
+
+</body>
+</html>
